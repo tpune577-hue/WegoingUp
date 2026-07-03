@@ -145,20 +145,46 @@ export class Game {
   private lastFrame = 0;
   private acc = 0;
   private ctx: CanvasRenderingContext2D;
+  // สรุป logic ของการ "กดปุ่มลง"/"ปล่อยปุ่ม" ไว้ที่เดียว ใช้ร่วมกันทั้งคีย์บอร์ดและปุ่มสัมผัสบนมือถือ
+  // (touchLeft/touchRight/touchJump/touchItem ด้านล่าง) โดยทั้งคู่เขียนลง this.keys ชุดเดียวกัน ฝั่ง sim ไม่ต้องรู้ที่มา
+  private pressKey(key: string) {
+    this.keys.add(key);
+    if ([' ', 'w', 'arrowup'].includes(key)) {
+      this.jumpBufferedAt = this.simTime;
+    }
+    if (['x', 'enter'].includes(key)) this.useItem();
+  }
+  private releaseKey(key: string) {
+    this.keys.delete(key);
+  }
   private onKeyDown = (e: KeyboardEvent) => {
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) {
       e.preventDefault();
     }
     if (e.repeat) return;
-    this.keys.add(e.key.toLowerCase());
-    if ([' ', 'w', 'arrowup'].includes(e.key.toLowerCase())) {
-      this.jumpBufferedAt = this.simTime;
-    }
-    if (['x', 'enter'].includes(e.key.toLowerCase())) this.useItem();
+    this.pressKey(e.key.toLowerCase());
   };
   private onKeyUp = (e: KeyboardEvent) => {
-    this.keys.delete(e.key.toLowerCase());
+    this.releaseKey(e.key.toLowerCase());
   };
+
+  // ---------- ปุ่มสัมผัส (มือถือ) — main.ts เรียกจาก pointerdown/pointerup ----------
+  touchLeft(down: boolean) {
+    if (down) this.pressKey('arrowleft');
+    else this.releaseKey('arrowleft');
+  }
+  touchRight(down: boolean) {
+    if (down) this.pressKey('arrowright');
+    else this.releaseKey('arrowright');
+  }
+  touchJump(down: boolean) {
+    if (down) this.pressKey(' ');
+    else this.releaseKey(' ');
+  }
+  touchItem() {
+    this.pressKey('x');
+    this.releaseKey('x'); // ใช้ไอเทมเป็น edge-trigger ครั้งเดียวต่อแตะ ไม่ต้องค้างสถานะ 'x' ไว้
+  }
 
   constructor(
     canvas: HTMLCanvasElement,

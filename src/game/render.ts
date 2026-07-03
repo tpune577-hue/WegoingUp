@@ -1,5 +1,5 @@
 import * as C from './constants';
-import { isSolid } from './chunks';
+import { isSolid, moverRect } from './chunks';
 import type { Game } from './game';
 import type { ItemType } from '../net/protocol';
 
@@ -10,6 +10,7 @@ export function draw(g: Game, ctx: CanvasRenderingContext2D) {
 
   drawBackground(g, ctx);
   drawTiles(g, ctx);
+  drawMovers(g, ctx, sim);
   drawGoal(g, ctx, now);
   drawBoxes(g, ctx, now, sim);
   drawTraps(g, ctx, sim);
@@ -72,6 +73,19 @@ function drawTiles(g: Game, ctx: CanvasRenderingContext2D) {
       ctx.fillStyle = '#5a4a80';
       ctx.fillRect(x + (row % 2 ? 4 : 10), y + 6, 2, 2);
     }
+  }
+}
+
+function drawMovers(g: Game, ctx: CanvasRenderingContext2D, sim: number) {
+  for (const m of g.level.movers) {
+    const r = moverRect(m, sim);
+    const y = r.y - g.camY;
+    if (y < -20 || y > C.VIEW_H + 20) continue;
+    ctx.fillStyle = '#4dd0e1'; // สีต่างจากพื้นตันปกติ ให้เห็นชัดว่าเป็นแพลตฟอร์มเคลื่อนที่
+    ctx.fillRect(r.x, y, r.w, r.h);
+    ctx.fillStyle = '#1f8a99';
+    ctx.fillRect(r.x, y, r.w, 2);
+    ctx.fillRect(r.x, y + r.h - 2, r.w, 2);
   }
 }
 

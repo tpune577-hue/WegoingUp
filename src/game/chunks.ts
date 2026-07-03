@@ -15,6 +15,12 @@ import { Rng } from './rng';
 // - ทับคอลัมน์กัน 2 ช่องก็ยังกระโดดผ่านได้จริง (ตรวจสอบด้วย simulator เดียวกัน) แต่หน้าต่าง
 //   ตำแหน่งเริ่มกระโดดที่ใช้ได้แคบกว่าเยอะ (~1 ใน 8 ของช่วงพื้นเทียบกับทับ 1 ช่อง) จึงสงวนไว้
 //   สำหรับ chunk ประเภท "ชาเลนจ์" เท่านั้น (ดู CHALLENGE ด้านล่าง) — chunk ปกติควรใช้ทับ ≤1 ช่อง
+//
+// แพลตฟอร์มเคลื่อนที่ (Mover): ประกาศแยกจาก grid ตัวอักษร (เพราะตำแหน่งขยับตามเวลา ไม่ใช่ tile
+// ตายตัว) ผ่าน `movers` ของแต่ละ chunk — ดู MoverSpec ด้านล่าง ตำแหน่ง "บ้าน" (offset 0) ต้อง
+// เว้นที่ในกริดเป็น '.' ตลอดเส้นทางที่มันเคลื่อนที่ผ่าน (ห้ามมี '#' ทับ) ส่วนจังหวะขึ้น/ลงจาก mover
+// ไปยังแพลตฟอร์มตายตัวข้างเคียง ใช้กติการอยต่อแบบเดิมทุกประการ (คิดเหมือน mover หยุดนิ่งอยู่ ณ
+// ตำแหน่งนั้น ณ ขณะกระโดด) — ตรวจสอบแล้วด้วย simulator เดียวกัน (ดูจุดขึ้น/ลงของ MOVER_* ด้านล่าง)
 
 const START_CHUNK = [
   '....................',
@@ -54,7 +60,7 @@ const GOAL_CHUNK = [
 // แถวของแพลตฟอร์มเส้นชัยใน GOAL_CHUNK (แตะ = ชนะ)
 const GOAL_ROW = 7;
 
-const MIDDLE: string[][] = [
+const MIDDLE_GRIDS: string[][] = [
   [ // บันไดกลาง
     '....................',
     '........####........',
@@ -262,10 +268,108 @@ const MIDDLE: string[][] = [
   ],
 ];
 
+// ตำแหน่งของ Mover ระบุเป็น tile ท้องถิ่นของ chunk (row/col ที่มุมบนซ้าย) — บ้าน (offset 0)
+// อยู่ที่ (row,col) นี้เป๊ะ แล้วขยับออกไป rangeTiles ช่องตามแกน แล้ววนกลับ (สามเหลี่ยม ไม่ค้าง
+// ปลาย) รอบละ periodSec วินาที phaseSec ไว้เลื่อน jitter จังหวะเริ่มถ้ามีหลายตัว (ที่นี่ตัวเดียว/
+// chunk เลยใช้ 0 ได้)
+interface MoverSpec {
+  row: number;
+  col: number;
+  width: number; // tiles
+  axis: 'x' | 'y';
+  rangeTiles: number;
+  periodSec: number;
+  phaseSec: number;
+}
+
+interface ChunkDef {
+  grid: string[];
+  movers?: MoverSpec[];
+}
+
+function plainChunk(grid: string[]): ChunkDef {
+  return { grid };
+}
+
+// ลิฟต์: พาข้ามช่วงตั้ง 8 แถว (ไกลเกินกระโดดปกติ 3 แถวมาก) ตัวลิฟต์เองคือจุดขึ้น/ลง — ไม่มี
+// แพลตฟอร์มตายตัวคั่นเพิ่ม แถวที่มันวิ่งผ่าน (row3-11 คอลัมน์ 10-13) ต้องโล่งทั้งเส้นทาง จุดขึ้น
+// (จาก ENTRY row13 ไปลิฟต์ตอนอยู่ล่างสุด row11) และจุดลง (จากลิฟต์ตอนอยู่บนสุด row3 ไป EXIT
+// row1) เป็นก้าวสั้นแค่ 2 แถว จึงไม่ต้องสนกติกาคอลัมน์ 3-แถว — ตรวจสอบทั้งสองจุดแล้วด้วย simulator
+// (ต้องเว้น 2 แถวไม่ใช่ 1 — เว้นแค่ 1 แถวทำให้กล่อง collision ของผู้เล่นที่ยืนบนลิฟต์สุดราง
+// ไปชนขอบล่างของ EXIT/ENTRY พอดี เพราะคอลัมน์ทับกัน เกิด false-positive "ยืนติดพื้น" จนโดนตรึง
+// ไม่ตกจริง — เจอบั๊กนี้ตอนไล่ debug เลยขยับเป็น 2 แถวให้มีระยะห่างพอ) ช่วงเดินทางไกลจริงเกิด
+// "ระหว่างขี่ลิฟต์" ซึ่งผู้เล่นถูกพาไปด้วย (ดู carry ใน game.ts) ไม่ต้องกระโดดเอง
+const MOVER_ELEVATOR_GRID = [
+  '....................',
+  '........####........',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '....................',
+  '............####....',
+  '....................',
+];
+const MOVER_ELEVATOR: MoverSpec[] = [
+  // home (offset 0) = row3 ใกล้ EXIT, ขยับลง 8 ช่องถึง row11 ใกล้ ENTRY แล้ววนกลับ
+  { row: 3, col: 10, width: 4, axis: 'y', rangeTiles: 8, periodSec: 6, phaseSec: 0 },
+];
+
+// สะพานเลื่อน: mover เลื่อนแนวนอนไกลถึง 11 ช่อง (ไกลเกินกระโดดปกติมาก) เชื่อมแพลตฟอร์มตายตัว
+// สองฝั่งที่ห่างเกินกระโดดตรง จุดขึ้น (จากแถว10 ตอน mover อยู่บ้าน) และจุดลง (ตอน mover สุดราง
+// ไปแถว4) เป็นกระโดด 3-แถวปกติ ตรวจสอบแล้วด้วย simulator — ต้องรอจังหวะ mover วนมาใกล้ก่อนขึ้น
+const MOVER_BRIDGE_GRID = [
+  '....................',
+  '........####........',
+  '....................',
+  '....................',
+  '............####....', // แพลตฟอร์มตายตัวฝั่งขึ้น (ปลายทางฝั่งไกลของ mover, row4)
+  '....................',
+  '....................',
+  '....................', // แถวที่ mover วิ่งผ่าน (row7 ต้องโล่งตลอดเส้นทางคอลัมน์ 5-19)
+  '....................',
+  '....................',
+  '.........####.......', // แพลตฟอร์มตายตัวฝั่งเริ่ม (ใกล้บ้านของ mover, row10)
+  '....................',
+  '....................',
+  '............####....',
+  '....................',
+];
+const MOVER_BRIDGE: MoverSpec[] = [
+  { row: 7, col: 5, width: 4, axis: 'x', rangeTiles: 11, periodSec: 5, phaseSec: 0 },
+];
+
+const MIDDLE: ChunkDef[] = [
+  ...MIDDLE_GRIDS.map(plainChunk),
+  { grid: MOVER_ELEVATOR_GRID, movers: MOVER_ELEVATOR },
+  { grid: MOVER_BRIDGE_GRID, movers: MOVER_BRIDGE },
+];
+
 export interface BoxSpawn {
   id: number;
   x: number; // px (center)
   y: number; // px (center)
+}
+
+// แพลตฟอร์มเคลื่อนที่ในพิกัดสัมบูรณ์ของด่าน (px) — ตำแหน่งจริง ณ เวลา t คำนวณจาก moverRect()
+// เป็นคลื่นสามเหลี่ยม (ความเร็วคงที่ วิ่งกลับทิศทันทีที่สุดราง) เพื่อให้ทุก client คำนวณตรงกัน
+// เป๊ะจาก simTime เดียวกัน (ไม่มี state เพิ่มเติมต้อง sync ผ่าน network ตาม ADR-0001/0002)
+export interface Mover {
+  id: number;
+  axis: 'x' | 'y';
+  x: number; // px บ้าน (offset 0)
+  y: number;
+  w: number;
+  h: number;
+  range: number; // px ระยะที่ขยับออกจากบ้าน
+  period: number; // วินาทีต่อรอบไป-กลับ
+  phase: number;
 }
 
 export interface Level {
@@ -273,15 +377,38 @@ export interface Level {
   rows: number;
   solid: Uint8Array; // rows * cols
   boxes: BoxSpawn[];
+  movers: Mover[];
   widthPx: number;
   heightPx: number;
   goalY: number; // px — เท้าแตะระดับนี้หรือสูงกว่า = ชนะ
   spawnY: number; // px — เท้าผู้เล่นตอนเริ่ม
 }
 
+export function moverOffset(m: Mover, t: number): number {
+  const cycle = (((t + m.phase) % m.period) + m.period) % m.period / m.period;
+  return cycle < 0.5 ? cycle * 2 * m.range : (1 - cycle) * 2 * m.range;
+}
+
+// ความเร็วปัจจุบัน (px/s) ตามแกนของ mover — บวก = วิ่งออกจากบ้าน, ลบ = วิ่งกลับบ้าน
+export function moverVelocity(m: Mover, t: number): number {
+  const cycle = (((t + m.phase) % m.period) + m.period) % m.period / m.period;
+  const speed = (2 * m.range) / m.period;
+  return cycle < 0.5 ? speed : -speed;
+}
+
+export function moverRect(
+  m: Mover,
+  t: number,
+): { x: number; y: number; w: number; h: number } {
+  const off = moverOffset(m, t);
+  return m.axis === 'x'
+    ? { x: m.x + off, y: m.y, w: m.w, h: m.h }
+    : { x: m.x, y: m.y + off, w: m.w, h: m.h };
+}
+
 export function buildLevel(seed: number): Level {
   const rng = new Rng(seed);
-  const order: string[][] = [START_CHUNK];
+  const order: ChunkDef[] = [plainChunk(START_CHUNK)];
   let prev = -1;
   for (let i = 0; i < MIDDLE_CHUNKS; i++) {
     let pick = rng.int(MIDDLE.length);
@@ -289,18 +416,19 @@ export function buildLevel(seed: number): Level {
     prev = pick;
     order.push(MIDDLE[pick]);
   }
-  order.push(GOAL_CHUNK);
+  order.push(plainChunk(GOAL_CHUNK));
 
   const numChunks = order.length;
   const rows = numChunks * CHUNK_H;
   const cols = CHUNK_W;
   const solid = new Uint8Array(rows * cols);
   const boxes: BoxSpawn[] = [];
+  const movers: Mover[] = [];
 
   // chunk แรก (start) อยู่ล่างสุดของด่าน
   for (let i = 0; i < numChunks; i++) {
     const baseRow = rows - CHUNK_H * (i + 1);
-    const grid = order[i];
+    const { grid, movers: specs } = order[i];
     for (let r = 0; r < CHUNK_H; r++) {
       const line = grid[r];
       for (let c = 0; c < cols; c++) {
@@ -317,11 +445,25 @@ export function buildLevel(seed: number): Level {
         }
       }
     }
+    for (const spec of specs ?? []) {
+      movers.push({
+        id: movers.length,
+        axis: spec.axis,
+        x: spec.col * TILE,
+        y: (baseRow + spec.row) * TILE,
+        w: spec.width * TILE,
+        h: TILE,
+        range: spec.rangeTiles * TILE,
+        period: spec.periodSec,
+        phase: spec.phaseSec,
+      });
+    }
   }
 
   const goalRow = 0 + GOAL_ROW; // goal chunk อยู่บนสุด (baseRow = 0)
   return {
     cols,
+    movers,
     rows,
     solid,
     boxes,

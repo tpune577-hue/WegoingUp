@@ -1,4 +1,4 @@
-import { buildLevel, isSolid, type Level } from './chunks';
+import { buildLevel, isSolid, moverRect, moverVelocity, type Level, type Mover } from './chunks';
 import * as C from './constants';
 import { weightedPick } from './rng';
 import type { GameMode, ItemType, NetMsg } from '../net/protocol';
@@ -136,6 +136,8 @@ export class Game {
   private jumpBufferedAt = -1;
   private coyoteAt = -1;
   private sendAcc = 0;
+  // ตำแหน่งปัจจุบันของแพลตฟอร์มเคลื่อนที่ — คำนวณครั้งเดียวต่อ tick จาก simTime เดียวกันทุกเครื่อง
+  private moverRects: { x: number; y: number; w: number; h: number; mover: Mover }[] = [];
   private trapCounter = 0;
   private rafId = 0;
   private lastFrame = 0;
@@ -229,6 +231,9 @@ export class Game {
   private tick(dt: number) {
     this.simTime += dt;
     const now = this.simTime;
+    // ตำแหน่งแพลตฟอร์มเคลื่อนที่ของ tick นี้ — คำนวณครั้งเดียวจาก simTime เพื่อให้ collides()/
+    // carry ทั้ง tick เห็นตำแหน่งเดียวกัน (deterministic เหมือนกันทุกเครื่องตาม ADR-0001/0002)
+    this.moverRects = this.level.movers.map((m) => ({ ...moverRect(m, now), mover: m }));
     if (!this.ended) {
       if (this.mode === 'lava') this.updateLava(dt, now); // สถานะ global — เดินต่อแม้เรา eliminated แล้ว
       if (!this.eliminated) {
@@ -283,8 +288,57 @@ export class Game {
       this.keys.has(' ') || this.keys.has('w') || this.keys.has('arrowup');
     if (this.vy < -140 && !holdingJump) this.vy = -140;
 
+    // ถ้ายืนอยู่บนแพลตฟอร์มเคลื่อนที่เมื่อ tick ก่อน (this.ground ค้างจากรอบที่แล้ว) ให้ขยับ
+    // ตามแพลตฟอร์มก่อนคำนวณการเคลื่อนไหวของผู้เล่นเอง (carry) — ใช้ nudge ที่ไม่แตะ ground/vx/vy
+    // เพื่อไม่ให้ชนกับ logic กระโดด/แรงโน้มถ่วงด้านบน
+    if (this.ground) {
+      const ride = this.standingMover();
+      if (ride) {
+        const vel = moverVelocity(ride, now);
+        if (ride.axis === 'x') this.nudge(vel * dt, 0);
+        else this.nudge(0, vel * dt);
+      }
+    }
+
     this.moveX(this.vx * dt);
     this.moveY(this.vy * dt);
+  }
+
+  // แพลตฟอร์มเคลื่อนที่ที่ผู้เล่นกำลังยืนอยู่ตอนนี้ (เท้าแตะขอบบนพอดี + คาบเกี่ยวแนวนอน) ถ้ามี
+  private standingMover(): Mover | null {
+    for (const r of this.moverRects) {
+      const overlapX = this.px + C.PLAYER_W > r.x && this.px < r.x + r.w;
+      const onTop = Math.abs(this.py + C.PLAYER_H - r.y) < 1;
+      if (overlapX && onTop) return r.mover;
+    }
+    return null;
+  }
+
+  // เหมือน moveX/moveY แต่ไม่แตะ this.ground/this.vx/this.vy — ใช้พาผู้เล่นตามแพลตฟอร์มเคลื่อนที่
+  // โดยไม่ชนกับ logic กระโดด/พื้นของ frame นี้ (กันชนกำแพงแบบ collision-safe เหมือนกัน)
+  private nudge(dx: number, dy: number) {
+    if (dx !== 0) {
+      const sign = Math.sign(dx);
+      let remaining = Math.abs(dx);
+      while (remaining > 0) {
+        const inc = Math.min(1, remaining);
+        const nx = this.px + inc * sign;
+        if (this.collides(nx, this.py)) break;
+        this.px = nx;
+        remaining -= inc;
+      }
+    }
+    if (dy !== 0) {
+      const sign = Math.sign(dy);
+      let remaining = Math.abs(dy);
+      while (remaining > 0) {
+        const inc = Math.min(1, remaining);
+        const ny = this.py + inc * sign;
+        if (this.collides(this.px, ny)) break;
+        this.py = ny;
+        remaining -= inc;
+      }
+    }
   }
 
   private collides(x: number, y: number): boolean {
@@ -295,6 +349,14 @@ export class Game {
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         if (isSolid(this.level, c, r)) return true;
+      }
+    }
+    for (const rect of this.moverRects) {
+      if (
+        x + C.PLAYER_W > rect.x && x < rect.x + rect.w &&
+        y + C.PLAYER_H > rect.y && y < rect.y + rect.h
+      ) {
+        return true;
       }
     }
     return false;

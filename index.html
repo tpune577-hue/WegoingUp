@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>We go วิ่ง อัพ</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #14121f;
+      color: #eee;
+      font-family: "Courier New", monospace;
+      overflow: hidden;
+    }
+    #app { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: #1a1830;
+      display: none;
+    }
+    .screen {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; text-align: center;
+    }
+    .hidden { display: none !important; }
+    h1 {
+      font-size: 42px; letter-spacing: 3px; color: #ffd34d;
+      text-shadow: 3px 3px 0 #b3541e, 6px 6px 0 #2a2340;
+    }
+    .subtitle { color: #8f8ab0; font-size: 14px; }
+    input {
+      background: #2a2340; border: 3px solid #4a4370; color: #fff;
+      font-family: inherit; font-size: 18px; padding: 8px 12px; text-align: center;
+      width: 240px; outline: none;
+    }
+    input:focus { border-color: #ffd34d; }
+    button {
+      background: #ffd34d; border: none; color: #2a2340;
+      font-family: inherit; font-weight: bold; font-size: 18px;
+      padding: 10px 26px; cursor: pointer;
+      box-shadow: 0 4px 0 #b3541e;
+    }
+    button:active { transform: translateY(3px); box-shadow: 0 1px 0 #b3541e; }
+    button.secondary { background: #4a4370; color: #eee; box-shadow: 0 4px 0 #2a2340; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    label { font-size: 13px; color: #8f8ab0; }
+    select {
+      background: #2a2340; border: 3px solid #4a4370; color: #fff;
+      font-family: inherit; font-size: 15px; padding: 6px;
+    }
+    #playerList { list-style: none; font-size: 18px; min-height: 120px; }
+    #playerList li { padding: 4px 0; }
+    .roomcode { font-size: 34px; letter-spacing: 8px; color: #7de07d; }
+    .note { font-size: 12px; color: #6a6590; max-width: 460px; line-height: 1.6; }
+    .err { color: #ff7b7b; font-size: 14px; min-height: 18px; }
+    #resultOverlay {
+      position: absolute; inset: 0; display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      background: rgba(20, 18, 31, 0.85);
+    }
+    #resultText { font-size: 34px; color: #ffd34d; text-shadow: 3px 3px 0 #2a2340; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" width="320" height="240"></canvas>
+
+    <div id="screen-menu" class="screen">
+      <h1>WE GO วิ่ง อัพ</h1>
+      <div class="subtitle">party platformer — ใครถึงยอดก่อน ชนะ!</div>
+      <input id="nameInput" maxlength="10" placeholder="ชื่อของคุณ" />
+      <div class="row">
+        <label>เล่นผ่าน:</label>
+        <select id="transportSelect">
+          <option value="local">เครื่องเดียวกัน (ข้ามแท็บ)</option>
+          <option value="supabase">ออนไลน์ (Supabase)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="createBtn">สร้างห้อง</button>
+        <input id="roomInput" maxlength="4" placeholder="รหัสห้อง" style="width:120px" />
+        <button id="joinBtn" class="secondary">เข้าร่วม</button>
+      </div>
+      <div id="menuErr" class="err"></div>
+      <div class="note">
+        โหมด "เครื่องเดียวกัน" เปิดอีกแท็บแล้วเข้าห้องเดียวกันเพื่อทดสอบได้ทันที ·
+        โหมดออนไลน์ต้องตั้งค่า VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY ใน .env (ดู README)
+      </div>
+    </div>
+
+    <div id="screen-lobby" class="screen hidden">
+      <div class="subtitle">รหัสห้อง</div>
+      <div id="roomCode" class="roomcode">----</div>
+      <ul id="playerList"></ul>
+      <button id="startBtn">เริ่มเกม! (Race)</button>
+      <button id="leaveBtn" class="secondary">ออกจากห้อง</button>
+      <div class="note">รองรับ 2–8 คน · ควบคุม: ←→/AD เดิน · Space/W/↑ กระโดด · X/Enter ใช้ไอเทม</div>
+    </div>
+
+    <div id="resultOverlay">
+      <div id="resultText"></div>
+      <button id="againBtn">เล่นอีกรอบ</button>
+      <button id="backBtn" class="secondary">กลับล็อบบี้</button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

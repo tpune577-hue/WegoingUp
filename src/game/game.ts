@@ -129,6 +129,8 @@ export class Game {
   winnerName: string | null = null;
   onEnd: ((winnerName: string) => void) | null = null;
   onFinishBoard: ((rows: FinishRow[]) => void) | null = null;
+  // speedrun: เรียกทันทีที่ "เรา" (client นี้) ถึงเส้นชัย พร้อมเวลาของตัวเอง — ใช้ส่งขึ้น World Leaderboard
+  onSelfFinish: ((time: number) => void) | null = null;
 
   self: RosterEntry;
 
@@ -524,6 +526,7 @@ export class Game {
       const time = this.simTime - this.startedAt;
       this.finishOrder.set(this.selfId, time);
       this.transport.send({ t: 'finish', id: this.selfId, time });
+      this.onSelfFinish?.(time);
       this.maybeEndSpeedrun();
       return;
     }

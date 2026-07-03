@@ -2,6 +2,7 @@ import { Game, type RosterEntry } from './game/game';
 import { PALETTE, VIEW_H, VIEW_W } from './game/constants';
 import type { GameMode, NetMsg } from './net/protocol';
 import { BroadcastTransport, SupabaseTransport, type Transport } from './net/transport';
+import { fetchWorldTop, submitWorldTime } from './net/leaderboard';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -18,7 +19,16 @@ const roomCodeEl = $('roomCode');
 const playerList = $<HTMLUListElement>('playerList');
 const startBtn = $<HTMLButtonElement>('startBtn');
 const resultText = $('resultText');
+const inGameBoardCol = $('inGameBoardCol');
 const resultBoard = $<HTMLOListElement>('resultBoard');
+const worldBoardCol = $('worldBoardCol');
+const worldBoard = $<HTMLOListElement>('worldBoard');
+
+function formatTime(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = (t % 60).toFixed(1).padStart(4, '0');
+  return `${m}:${s}`;
+}
 
 const MODE_LABEL: Record<GameMode, string> = {
   race: 'Race',
@@ -147,11 +157,16 @@ function beginGame(
   // dev handle สำหรับ debug/ทดสอบอัตโนมัติ
   (window as unknown as { __game?: Game }).__game = game;
   game.onEnd = (winnerName) => {
-    resultBoard.classList.add('hidden');
-    resultBoard.textContent = '';
+    inGameBoardCol.classList.add('hidden');
+    worldBoardCol.classList.add('hidden');
+    resultBoard.innerHTML = '';
+    worldBoard.innerHTML = '';
     const verb = mode === 'survival' || mode === 'lava' ? 'รอดคนสุดท้าย' : 'ชนะ';
     resultText.textContent = `🏁 ${winnerName} ${verb}!`;
     resultOverlay.style.display = 'flex';
+  };
+  game.onSelfFinish = (time) => {
+    void submitWorldTime(myName(), time, roomCodeEl.textContent ?? '');
   };
   game.onFinishBoard = (rows) => {
     resultText.textContent = rows[0]?.time !== null ? `🏁 ${rows[0].name} เร็วที่สุด!` : 'จบรอบ';
@@ -162,19 +177,37 @@ function beginGame(
       const nameSpan = document.createTextNode(row.name);
       const timeSpan = document.createElement('span');
       timeSpan.className = 'time';
-      if (row.time === null) {
-        timeSpan.textContent = 'DNF';
-      } else {
-        const m = Math.floor(row.time / 60);
-        const s = (row.time % 60).toFixed(1).padStart(4, '0');
-        timeSpan.textContent = `${m}:${s}`;
-      }
+      timeSpan.textContent = row.time === null ? 'DNF' : formatTime(row.time);
       li.appendChild(nameSpan);
       li.appendChild(timeSpan);
       resultBoard.appendChild(li);
     }
-    resultBoard.classList.remove('hidden');
+    inGameBoardCol.classList.remove('hidden');
     resultOverlay.style.display = 'flex';
+
+    // World Leaderboard: อันดับเวลาเร็วที่สุดข้ามห้อง/ข้ามเซสชันทั้งหมด (ดู src/net/leaderboard.ts)
+    worldBoard.innerHTML = '<li class="empty">กำลังโหลด…</li>';
+    worldBoardCol.classList.remove('hidden');
+    void fetchWorldTop(10).then((scores) => {
+      worldBoard.innerHTML = '';
+      if (scores.length === 0) {
+        const li = document.createElement('li');
+        li.className = 'empty';
+        li.textContent = 'ยังไม่มีข้อมูล (หรือยังไม่ได้เชื่อม Supabase — ดู README)';
+        worldBoard.appendChild(li);
+        return;
+      }
+      for (const score of scores) {
+        const li = document.createElement('li');
+        const nameSpan = document.createTextNode(score.name);
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'time';
+        timeSpan.textContent = formatTime(score.time);
+        li.appendChild(nameSpan);
+        li.appendChild(timeSpan);
+        worldBoard.appendChild(li);
+      }
+    });
   };
   show(canvas);
   game.start();

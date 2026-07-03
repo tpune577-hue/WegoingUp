@@ -63,10 +63,14 @@
       background: rgba(20, 18, 31, 0.85);
     }
     #resultText { font-size: 34px; color: #ffd34d; text-shadow: 3px 3px 0 #2a2340; }
-    #resultBoard { list-style: decimal-leading-zero inside; font-size: 16px; min-width: 260px; }
-    #resultBoard li { padding: 3px 0; text-align: left; }
+    #boards { display: flex; gap: 28px; align-items: flex-start; }
+    .board-col { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+    .board-title { font-size: 12px; color: #8f8ab0; letter-spacing: 1px; }
+    #resultBoard, #worldBoard { list-style: decimal-leading-zero inside; font-size: 16px; min-width: 240px; }
+    #resultBoard li, #worldBoard li { padding: 3px 0; text-align: left; }
     #resultBoard li.dnf { color: #6a6590; }
-    #resultBoard .time { float: right; color: #7de07d; }
+    #worldBoard li.empty { list-style: none; color: #6a6590; font-size: 12px; max-width: 240px; line-height: 1.5; }
+    #resultBoard .time, #worldBoard .time { float: right; color: #7de07d; }
   </style>
 </head>
 <body>
@@ -116,7 +120,16 @@
 
     <div id="resultOverlay">
       <div id="resultText"></div>
-      <ol id="resultBoard" class="hidden"></ol>
+      <div id="boards">
+        <div id="inGameBoardCol" class="board-col hidden">
+          <div class="board-title">LEADERBOARD ในเกม</div>
+          <ol id="resultBoard"></ol>
+        </div>
+        <div id="worldBoardCol" class="board-col hidden">
+          <div class="board-title">🌍 WORLD LEADERBOARD</div>
+          <ol id="worldBoard"></ol>
+        </div>
+      </div>
       <button id="againBtn">เล่นอีกรอบ</button>
       <button id="backBtn" class="secondary">กลับล็อบบี้</button>
     </div>

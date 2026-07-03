@@ -44,6 +44,25 @@ Prototype ใช้ Supabase Realtime เป็น transport ตาม [ADR-0001
 - เก็บ **Mystery Box (?)** ได้ไอเทม 1 ชิ้น (ถือได้ทีละชิ้น) — สุ่มถ่วงน้ำหนักตามอันดับ: คนรั้งท้ายมีสิทธิ์ได้ "สลับที่" คนนำได้ "เกราะ" บ่อยกว่า
 - ไอเทม: **สลับที่** (สลับกับคนที่สูงสุด) · **ยิง** (โดนแล้วเสีย HP + กระเด็น) · **เกราะ** (กัน 1 hit ทุกอย่างรวมถึงสลับที่) · **กับดัก** (วางแล้วจางหายใน 2 วิ — เกมความจำ!)
 
+## Leaderboard (Speed Run)
+
+จบรอบ Speed Run แล้วเห็น leaderboard 2 ส่วนแยกกัน:
+
+- **Leaderboard ในเกม** — อันดับเวลาของคนในห้องรอบนี้เท่านั้น (มีอยู่แล้วเดิม)
+- **World Leaderboard** — 10 อันดับเวลาที่เร็วที่สุด สะสมข้ามห้อง/ข้ามเซสชันทั้งหมด เก็บถาวรใน Supabase table (คนละเรื่องกับ Realtime broadcast ที่ใช้ sync ตำแหน่งผู้เล่น)
+
+วิธีเปิดใช้งาน World Leaderboard:
+
+1. รัน [`supabase/migrations/0001_speedrun_world_leaderboard.sql`](supabase/migrations/0001_speedrun_world_leaderboard.sql) กับ Supabase project ของคุณ (Dashboard > SQL Editor)
+2. ตั้งค่า `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` ใน `.env` (ตัวเดียวกับที่ใช้เปิดโหมดออนไลน์ด้านบน)
+3. เล่น Speed Run จบรอบ — แต่ละคนจะส่งเวลาของตัวเองขึ้น World Leaderboard อัตโนมัติตอนถึงเส้นชัย
+
+ถ้ายังไม่ได้ตั้งค่า Supabase ฟีเจอร์นี้จะปิดเงียบๆ (โชว์ "ยังไม่มีข้อมูล" แทนที่จะ error)
+
+⚠️ **ข้อจำกัดที่ตั้งใจ:**
+- เวลาแต่ละคนวัดบนด่านที่สุ่ม seed คนละแบบ (ดู ADR-0002) เทียบกันตรงๆ จึงไม่แฟร์ 100% —ยอมรับได้สำหรับ prototype นี้ (ยังไม่ทำ "ranked run ด้วย seed คงที่")
+- เวลาที่ส่งเป็น self-reported โดย client (client-authoritative เหมือนโปรโตคอลเกมส่วนอื่นๆ ตาม [ADR-0001](docs/adr/0001-client-authoritative-no-body-collision.md)) จึงโกงได้ในทางเทคนิค — ยอมรับได้สำหรับ leaderboard เล่นกับเพื่อน ไม่ใช่ public ranked
+
 ## สถาปัตยกรรม
 
 - [ADR-0001](docs/adr/0001-client-authoritative-no-body-collision.md) — client-authoritative movement: แต่ละเครื่อง sim ตัวเองแล้ว broadcast ตำแหน่ง ~12Hz, ตัวละครไม่ชนกัน, ไอเทมเป็น discrete event ที่เหยื่อ apply ผลเอง (victim-authoritative) — ดู [src/net/protocol.ts](src/net/protocol.ts) และ [src/game/game.ts](src/game/game.ts)

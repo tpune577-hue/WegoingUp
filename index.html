@@ -63,6 +63,10 @@
       background: rgba(20, 18, 31, 0.85);
     }
     #resultText { font-size: 34px; color: #ffd34d; text-shadow: 3px 3px 0 #2a2340; }
+    #resultBoard { list-style: decimal-leading-zero inside; font-size: 16px; min-width: 260px; }
+    #resultBoard li { padding: 3px 0; text-align: left; }
+    #resultBoard li.dnf { color: #6a6590; }
+    #resultBoard .time { float: right; color: #7de07d; }
   </style>
 </head>
 <body>
@@ -96,6 +100,15 @@
       <div class="subtitle">รหัสห้อง</div>
       <div id="roomCode" class="roomcode">----</div>
       <ul id="playerList"></ul>
+      <div class="row">
+        <label>โหมด:</label>
+        <select id="modeSelect">
+          <option value="race">Race — ใครถึงก่อนชนะ</option>
+          <option value="speedrun">Speed Run — จับเวลา, leaderboard</option>
+          <option value="survival">Survival — รอดคนสุดท้ายชนะ</option>
+          <option value="lava">Lava Map — ลาวาไล่ ต้องปีนหนี</option>
+        </select>
+      </div>
       <button id="startBtn">เริ่มเกม! (Race)</button>
       <button id="leaveBtn" class="secondary">ออกจากห้อง</button>
       <div class="note">รองรับ 2–8 คน · ควบคุม: ←→/AD เดิน · Space/W/↑ กระโดด · X/Enter ใช้ไอเทม</div>
@@ -103,6 +116,7 @@
 
     <div id="resultOverlay">
       <div id="resultText"></div>
+      <ol id="resultBoard" class="hidden"></ol>
       <button id="againBtn">เล่นอีกรอบ</button>
       <button id="backBtn" class="secondary">กลับล็อบบี้</button>
     </div>

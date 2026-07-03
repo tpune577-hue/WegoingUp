@@ -4,10 +4,19 @@
 
 export type ItemType = 'swap' | 'shot' | 'shield' | 'trap';
 
+// race: ใครถึงก่อนชนะ, HP เป็น penalty
+// speedrun: ทุกคนถึงเส้นชัยแล้วจับเวลา เล่นต่อจนครบ/หมดเวลา แล้วเทียบ leaderboard
+// survival: HP หมด = ตกรอบ (spectate) เหลือคนสุดท้ายชนะ
+// lava: เหมือน survival + มี Rising Hazard (ลาวา) ไล่จากล่างขึ้นบน
+export type GameMode = 'race' | 'speedrun' | 'survival' | 'lava';
+
 export type NetMsg =
   | { t: 'hello'; id: string; name: string; reply: boolean }
   | { t: 'bye'; id: string }
-  | { t: 'start'; seed: number; players: Array<{ id: string; name: string }> }
+  | {
+      t: 'start'; seed: number; mode: GameMode;
+      players: Array<{ id: string; name: string }>;
+    }
   | {
       t: 'state'; id: string;
       x: number; y: number; vx: number; vy: number;
@@ -23,4 +32,8 @@ export type NetMsg =
   | { t: 'trap'; id: string; owner: string; x: number; y: number }
   | { t: 'trapfire'; id: string; by: string }
   | { t: 'box'; id: number; by: string }
-  | { t: 'win'; id: string };
+  | { t: 'win'; id: string }
+  // survival/lava: ประกาศตัวเองตกรอบ (self-authoritative เหมือนไอเทมอื่น ๆ ตาม ADR-0001)
+  | { t: 'eliminated'; id: string }
+  // speedrun: ประกาศเวลาที่ตัวเองถึงเส้นชัย (วินาทีนับจากเริ่มรอบ)
+  | { t: 'finish'; id: string; time: number };

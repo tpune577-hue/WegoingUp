@@ -1,7 +1,7 @@
 import { buildLevel, isSolid, type Level } from './chunks';
 import * as C from './constants';
 import { weightedPick } from './rng';
-import type { ItemType, NetMsg } from '../net/protocol';
+import type { GameMode, ItemType, NetMsg } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { draw } from './render';
 
@@ -28,6 +28,7 @@ export class RemotePlayer {
   hp = C.START_HP;
   shield = false;
   item: ItemType | null = null;
+  eliminated = false; // survival/lava
   constructor(
     public id: string,
     public name: string,
@@ -85,9 +86,15 @@ export interface Projectile {
 
 const COUNTDOWN = 3;
 
+export interface FinishRow {
+  name: string;
+  time: number | null; // null = DNF
+}
+
 export class Game {
   level: Level;
   camY: number;
+  lavaY: number; // lava mode: px จากบน — ทุกอย่างต่ำกว่าเส้นนี้คือลาวา
   remotes = new Map<string, RemotePlayer>();
   traps = new Map<string, Trap>();
   shots: Projectile[] = [];
@@ -106,6 +113,13 @@ export class Game {
   stunUntil = 0;
   invulnUntil = 0;
 
+  // speedrun: เข้าเส้นชัยแล้วแต่รอบยังไม่จบ (รอคนอื่น/หมดเวลา)
+  finished = false;
+  finishOrder = new Map<string, number>(); // id -> เวลาที่ถึงเส้นชัย (วินาทีนับจากเริ่มรอบ)
+
+  // survival/lava: HP หมด = ตกรอบ กลายเป็นผู้ชม ทำอะไรไม่ได้
+  eliminated = false;
+
   // นาฬิกาของเกม เดินเฉพาะตอน tick (fixed timestep) — timer เกมทุกตัว
   // (invuln, stun, countdown, trap, กระสุน) ต้องใช้ตัวนี้ ห้ามใช้เวลาจริง
   // ไม่งั้นตอน browser throttle แท็บ timer จะหมดอายุเร็วกว่า sim
@@ -114,6 +128,7 @@ export class Game {
   ended = false;
   winnerName: string | null = null;
   onEnd: ((winnerName: string) => void) | null = null;
+  onFinishBoard: ((rows: FinishRow[]) => void) | null = null;
 
   self: RosterEntry;
 
@@ -147,10 +162,12 @@ export class Game {
     private selfId: string,
     public roster: RosterEntry[],
     seed: number,
+    public mode: GameMode = 'race',
   ) {
     this.ctx = canvas.getContext('2d')!;
     this.level = buildLevel(seed);
     this.camY = this.level.heightPx - C.VIEW_H;
+    this.lavaY = this.level.heightPx;
 
     const self = roster.find((r) => r.id === selfId);
     this.self = self ?? { id: selfId, name: '???', color: '#fff' };
@@ -213,13 +230,21 @@ export class Game {
     this.simTime += dt;
     const now = this.simTime;
     if (!this.ended) {
-      this.updateSelf(dt, now);
+      if (this.mode === 'lava') this.updateLava(dt, now); // สถานะ global — เดินต่อแม้เรา eliminated แล้ว
+      if (!this.eliminated) {
+        this.updateSelf(dt, now);
+        this.checkFallOut(now);
+        this.checkBoxes(now);
+        this.checkTraps(now);
+        if (this.mode === 'lava') this.checkLava(now);
+      }
       this.updateShots(dt, now);
       this.updateCamera(dt);
-      this.checkFallOut(now);
-      this.checkBoxes(now);
-      this.checkTraps(now);
       this.checkWin();
+      this.checkSurvivalWin();
+      if (this.mode === 'speedrun' && now >= this.startedAt + C.SPEEDRUN_TIME_LIMIT) {
+        this.finishSpeedrun();
+      }
     }
     this.sendAcc += dt;
     if (this.sendAcc >= 1 / C.POS_SEND_HZ) {
@@ -229,7 +254,7 @@ export class Game {
   }
 
   private updateSelf(dt: number, now: number) {
-    const frozen = now < this.startedAt || now < this.stunUntil;
+    const frozen = now < this.startedAt || now < this.stunUntil || this.finished;
     const left = this.keys.has('arrowleft') || this.keys.has('a');
     const right = this.keys.has('arrowright') || this.keys.has('d');
 
@@ -311,12 +336,19 @@ export class Game {
 
   // กล้องตาม "ผู้เล่นที่อยู่สูงสุดของฉาก" และไม่เลื่อนลง — ขอบล่างจอคือเส้นอันตราย
   private updateCamera(dt: number) {
-    let highest = this.py;
-    for (const r of this.remotes.values()) highest = Math.min(highest, r.y);
-    const desired = Math.max(
+    // spectator (eliminated) ไม่ผูกกล้อง — follow เฉพาะผู้เล่นที่ยังไม่ตกรอบ
+    let highest: number | null = this.eliminated ? null : this.py;
+    for (const r of this.remotes.values()) {
+      if (r.eliminated) continue;
+      if (highest === null || r.y < highest) highest = r.y;
+    }
+    if (highest === null) return; // ทุกคนตกรอบพร้อมกัน — กล้องหยุดนิ่ง (edge case)
+    let desired = Math.max(
       0,
       Math.min(highest - C.VIEW_H * 0.45, this.level.heightPx - C.VIEW_H),
     );
+    // lava mode: กล้องถูกลาวาลากขึ้นด้วย ไม่ต้องรอผู้เล่นคนนำอย่างเดียว ("ด่านขยับขึ้นเอง")
+    if (this.mode === 'lava') desired = Math.min(desired, this.lavaY - C.VIEW_H);
     if (desired < this.camY) {
       this.camY += (desired - this.camY) * Math.min(1, dt * 4);
     }
@@ -325,6 +357,18 @@ export class Game {
   private checkFallOut(now: number) {
     if (this.py > this.camY + C.VIEW_H + 12) {
       this.takeDamage(now, { respawn: true });
+    }
+  }
+
+  private updateLava(dt: number, now: number) {
+    if (now < this.startedAt + C.LAVA_START_DELAY) return;
+    // clamp ไม่ให้ไล่เลย goal chunk กัน unwinnable state
+    this.lavaY = Math.max(this.level.goalY - 8, this.lavaY - C.LAVA_RISE_SPEED * dt);
+  }
+
+  private checkLava(now: number) {
+    if (this.py + C.PLAYER_H > this.lavaY) {
+      this.takeDamage(now, { knockUp: true });
     }
   }
 
@@ -338,6 +382,7 @@ export class Game {
       // ผู้ยิงตรวจ hit บนจอตัวเอง (hitbox ใจดี) แล้วส่ง event ให้เหยื่อ apply เอง
       if (!dead && s.owner === this.selfId) {
         for (const r of this.remotes.values()) {
+          if (r.eliminated) continue;
           const cx = r.x + C.PLAYER_W / 2;
           const cy = r.y + C.PLAYER_H / 2;
           if (
@@ -374,7 +419,10 @@ export class Game {
   // Rubber-banding: ถ่วงน้ำหนักตามอันดับความสูง (CONTEXT.md — Mystery Box)
   private rollItem(): ItemType {
     const heights: Array<[string, number]> = [[this.selfId, this.py]];
-    for (const r of this.remotes.values()) heights.push([r.id, r.y]);
+    for (const r of this.remotes.values()) {
+      if (r.eliminated) continue;
+      heights.push([r.id, r.y]);
+    }
     heights.sort((a, b) => a[1] - b[1]); // y น้อย = สูงกว่า = อันดับดีกว่า
     const idx = heights.findIndex(([id]) => id === this.selfId);
     const f = heights.length <= 1 ? 1 : idx / (heights.length - 1); // 0=ผู้นำ 1=บ๊วย
@@ -407,17 +455,57 @@ export class Game {
   }
 
   private checkWin() {
-    if (this.py + C.PLAYER_H <= this.level.goalY + 2) {
+    if (this.py + C.PLAYER_H > this.level.goalY + 2) return;
+    if (this.mode === 'speedrun') {
+      if (this.finished) return;
+      this.finished = true;
+      const time = this.simTime - this.startedAt;
+      this.finishOrder.set(this.selfId, time);
+      this.transport.send({ t: 'finish', id: this.selfId, time });
+      this.maybeEndSpeedrun();
+      return;
+    }
+    if (this.mode === 'survival' || this.mode === 'lava') return; // เส้นชัยไม่มีผลในโหมดนี้
+    this.transport.send({ t: 'win', id: this.selfId });
+    this.finish(this.selfId);
+  }
+
+  // เช็คทุก tick — เฉพาะ client ที่ยังรอดจริงเท่านั้นที่จะเห็นเงื่อนไขนี้เป็นจริง
+  // จึงไม่มีสอง client ประกาศชนะพร้อมกัน (ยกเว้นตกรอบพร้อมกันเป็นคู่สุดท้าย — ดู CONTEXT.md)
+  private checkSurvivalWin() {
+    if (this.mode !== 'survival' && this.mode !== 'lava') return;
+    if (this.ended || this.eliminated) return;
+    let alive = 1;
+    for (const r of this.remotes.values()) if (!r.eliminated) alive++;
+    if (alive <= 1) {
       this.transport.send({ t: 'win', id: this.selfId });
       this.finish(this.selfId);
     }
   }
 
+  private maybeEndSpeedrun() {
+    if (this.finishOrder.size >= this.roster.length) this.finishSpeedrun();
+  }
+
+  private finishSpeedrun() {
+    if (this.ended) return;
+    this.ended = true;
+    const rows: FinishRow[] = this.roster
+      .map((r) => ({ name: r.name, time: this.finishOrder.get(r.id) ?? null }))
+      .sort((a, b) => {
+        if (a.time === null && b.time === null) return 0;
+        if (a.time === null) return 1;
+        if (b.time === null) return -1;
+        return a.time - b.time;
+      });
+    this.onFinishBoard?.(rows);
+  }
+
   private takeDamage(
     now: number,
-    opts: { respawn?: boolean; stun?: boolean; knockDir?: 1 | -1 },
+    opts: { respawn?: boolean; stun?: boolean; knockDir?: 1 | -1; knockUp?: boolean },
   ) {
-    if (this.ended || now < this.invulnUntil) return;
+    if (this.ended || this.eliminated || now < this.invulnUntil) return;
     if (this.shield) {
       this.shield = false;
       this.invulnUntil = now + 0.3;
@@ -434,12 +522,30 @@ export class Game {
       this.stunUntil = Math.max(this.stunUntil, now + 0.25);
       this.moveX(this.vx * C.DT);
     }
-    // Race Mode: HP เป็น penalty ไม่ใช่เงื่อนไขแพ้ — หมดแล้วรีเซ็ตเป็น 3 + respawn
+    if (opts.knockUp) {
+      // ลาวา: เด้งขึ้นตรง ๆ (CONTEXT.md — Rising Hazard: knockback ขึ้น + invuln สั้น)
+      this.vy = -C.LAVA_KNOCK_Y;
+      this.stunUntil = Math.max(this.stunUntil, now + 0.25);
+    }
     if (this.hp <= 0) {
+      if (this.mode === 'survival' || this.mode === 'lava') {
+        this.eliminate();
+        return;
+      }
+      // Race/Speed Run: HP เป็น penalty ไม่ใช่เงื่อนไขแพ้ — หมดแล้วรีเซ็ตเป็น 3 + respawn
       this.hp = C.START_HP;
       opts.respawn = true;
     }
     if (opts.respawn) this.respawnIntoView(now);
+    this.sendState();
+  }
+
+  private eliminate() {
+    if (this.eliminated) return;
+    this.eliminated = true;
+    this.vx = 0;
+    this.vy = 0;
+    this.transport.send({ t: 'eliminated', id: this.selfId });
     this.sendState();
   }
 
@@ -484,7 +590,10 @@ export class Game {
 
   private useItem() {
     const now = this.simTime;
-    if (this.ended || this.item === null || now < this.startedAt || now < this.stunUntil) {
+    if (
+      this.ended || this.item === null || now < this.startedAt ||
+      now < this.stunUntil || this.finished
+    ) {
       return;
     }
     const item = this.item;
@@ -516,6 +625,7 @@ export class Game {
         // สลับกับผู้เล่นที่อยู่สูงสุด ณ ขณะใช้ (Blue Shell) — เหยื่อ confirm ก่อน
         let target: RemotePlayer | null = null;
         for (const r of this.remotes.values()) {
+          if (r.eliminated) continue;
           if (!target || r.y < target.y) target = r;
         }
         if (!target) break;
@@ -573,7 +683,7 @@ export class Game {
         }
         break;
       case 'swapreq': {
-        if (msg.to !== this.selfId) return;
+        if (msg.to !== this.selfId || this.eliminated) return;
         // เหยื่อเช็คเกราะบนเครื่องตัวเอง — ไม่มี timing dispute (CONTEXT.md — เกราะ)
         if (this.shield) {
           this.shield = false;
@@ -625,6 +735,15 @@ export class Game {
       case 'win':
         this.finish(msg.id);
         break;
+      case 'finish':
+        if (!this.finishOrder.has(msg.id)) this.finishOrder.set(msg.id, msg.time);
+        this.maybeEndSpeedrun();
+        break;
+      case 'eliminated': {
+        const r = this.remotes.get(msg.id);
+        if (r) r.eliminated = true;
+        break;
+      }
       case 'bye':
         this.removePlayer(msg.id);
         break;

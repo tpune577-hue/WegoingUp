@@ -1,7 +1,14 @@
 # We go วิ่ง อัพ 🏃⬆️
 
 Party platformer 2D สไตล์ 8-bit — ผู้เล่น 2–8 คนแข่งกันปีนขึ้นยอดด่าน มีไอเทมป่วนกันระหว่างทาง
-Prototype นี้เป็น **Race Mode** (ใครแตะเส้นชัยบนสุดก่อน ชนะ) ตามคำแนะนำ MVP ordering ใน [CONTEXT.md](CONTEXT.md)
+เลือกโหมดได้ในหน้าล็อบบี้ก่อนกดเริ่มเกม — ดูรายละเอียดออกแบบเต็ม ๆ ใน [CONTEXT.md](CONTEXT.md)
+
+| โหมด | เงื่อนไขชนะ |
+|---|---|
+| **Race** | คนแรกที่แตะเส้นชัยชนะ, HP หมด = penalty (respawn) |
+| **Speed Run** | เล่นต่อจนครบ/หมดเวลา 180 วิ แล้วเทียบเวลาถึงเส้นชัยเป็น leaderboard |
+| **Survival** | HP หมด = ตกรอบ (spectate) เหลือคนสุดท้ายชนะ |
+| **Lava Map** | เหมือน Survival แต่มีลาวาไล่ขึ้นจากด้านล่าง บังคับให้ปีนตลอดเวลา |
 
 ## วิธีรัน
 
@@ -48,8 +55,10 @@ Prototype ใช้ Supabase Realtime เป็น transport ตาม [ADR-0001
 - **Respawn ใน Race:** HP หมด = รีเซ็ต 3 ดวง + เกิดใหม่บนแพลตฟอร์มกลางจอ พร้อมอมตะ 2 วิ (ยังไม่ใช่คำตอบสุดท้าย — รอ playtest)
 - **Controls:** keyboard-only ไปก่อน
 - **Round structure:** รอบเดียวจบ มีปุ่ม "เล่นอีกรอบ"
-- **Survival Mode / Rising Hazard:** ยังไม่ทำ (ตาม MVP ordering)
 - กับดักมีเวลา arm 0.75 วิ แล้วโดนได้ทุกคนรวมถึงคนวาง
+- **Survival/Lava tie เมื่อคนสุดท้าย 2 คนตกรอบพร้อมกัน:** ยังไม่ resolve (ดู Open Questions ใน CONTEXT.md)
+- **Speed Run หลัง finish:** ผู้เล่นยัง freeze แต่ยังโดนไอเทมได้อยู่ — v1 ปล่อยไว้แบบนี้ก่อน
+- **Lava rise speed/start delay:** ค่าเริ่มต้นกะคร่าว ๆ ต้องจูนตอน playtest
 
 ## เพิ่ม chunk ใหม่
 

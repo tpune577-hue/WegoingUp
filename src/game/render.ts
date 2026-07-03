@@ -14,12 +14,14 @@ export function draw(g: Game, ctx: CanvasRenderingContext2D) {
   drawBoxes(g, ctx, now, sim);
   drawTraps(g, ctx, sim);
   drawShots(g, ctx);
+  if (g.mode === 'lava') drawLava(g, ctx, now);
 
   for (const r of g.remotes.values()) {
+    if (r.eliminated) continue;
     drawPlayer(ctx, camY, r.x, r.y, r.face, r.color, r.name, r.shield, r.item, false);
   }
   const blink = sim < g.invulnUntil && Math.floor(now * 10) % 2 === 0;
-  if (!blink) {
+  if (!blink && !g.eliminated) {
     drawPlayer(
       ctx, camY, g.px, g.py, g.face, g.self.color, g.self.name,
       g.shield, g.item, true,
@@ -144,6 +146,25 @@ function drawShots(g: Game, ctx: CanvasRenderingContext2D) {
   }
 }
 
+function drawLava(g: Game, ctx: CanvasRenderingContext2D, now: number) {
+  const y = g.lavaY - g.camY;
+  if (y > C.VIEW_H) return; // ลาวายังไม่เข้าจอ
+  const top = Math.max(0, y);
+  const grad = ctx.createLinearGradient(0, top, 0, top + 16);
+  grad.addColorStop(0, '#ffb13d');
+  grad.addColorStop(1, '#c2280f');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, top, C.VIEW_W, 16);
+  ctx.fillStyle = '#c2280f';
+  ctx.fillRect(0, top + 16, C.VIEW_W, C.VIEW_H - top);
+  // ผิวคลื่น + ฟองอากาศประดับ
+  ctx.fillStyle = '#ffd97a';
+  for (let x = 0; x < C.VIEW_W; x += 10) {
+    const h = 2 + Math.sin(now * 3 + x * 0.3) * 1.5;
+    ctx.fillRect(x, top - h, 6, h + 2);
+  }
+}
+
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   camY: number,
@@ -232,6 +253,11 @@ function drawItemIcon(
 }
 
 function drawHud(g: Game, ctx: CanvasRenderingContext2D, now: number) {
+  if (g.eliminated) {
+    drawSpectatorHud(g, ctx);
+    return;
+  }
+
   // หัวใจ (HP)
   for (let i = 0; i < C.START_HP; i++) {
     drawHeart(ctx, 6 + i * 12, 6, i < g.hp);
@@ -255,6 +281,9 @@ function drawHud(g: Game, ctx: CanvasRenderingContext2D, now: number) {
   ctx.textAlign = 'right';
   ctx.fillText(`${height}m`, C.VIEW_W - 6, C.VIEW_H - 6);
 
+  if (g.mode === 'speedrun') drawSpeedrunHud(g, ctx, now);
+  if (g.mode === 'lava') drawLavaHud(g, ctx, now);
+
   // นับถอยหลัง
   const remain = g.startedAt - now;
   if (remain > 0) {
@@ -268,6 +297,56 @@ function drawHud(g: Game, ctx: CanvasRenderingContext2D, now: number) {
     ctx.fillStyle = '#7de07d';
     ctx.fillText('GO!', C.VIEW_W / 2, C.VIEW_H / 2 - 20);
   }
+}
+
+function drawLavaHud(g: Game, ctx: CanvasRenderingContext2D, sim: number) {
+  const remain = g.startedAt + C.LAVA_START_DELAY - sim;
+  if (remain <= 0) return;
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff8c42';
+  ctx.fillText(`ลาวาเริ่มไหลใน ${Math.ceil(remain)}วิ`, C.VIEW_W / 2, 12);
+}
+
+function drawSpectatorHud(g: Game, ctx: CanvasRenderingContext2D) {
+  let alive = 0;
+  for (const r of g.remotes.values()) if (!r.eliminated) alive++;
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff5c7a';
+  ctx.fillText('☠ ตกรอบ — รอดูจนจบ', C.VIEW_W / 2, 14);
+  ctx.font = '8px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillText(`เหลือ ${alive} คน`, C.VIEW_W / 2, 26);
+}
+
+function formatTime(t: number): string {
+  const m = Math.floor(t / 60);
+  const s = (t % 60).toFixed(1).padStart(4, '0');
+  return `${m}:${s}`;
+}
+
+function drawSpeedrunHud(g: Game, ctx: CanvasRenderingContext2D, sim: number) {
+  // นาฬิกาจับเวลา กลางบนจอ — หยุดนิ่งที่เวลาเข้าเส้นชัยของตัวเองถ้าจบแล้ว
+  const elapsed = g.finished
+    ? (g.finishOrder.get(g.self.id) ?? 0)
+    : Math.max(0, sim - g.startedAt);
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = g.finished ? '#7de07d' : '#fff';
+  ctx.fillText(formatTime(elapsed), C.VIEW_W / 2, 12);
+
+  // mini leaderboard มุมขวาบน — คนที่ถึงเส้นชัยแล้วเรียงตามเวลา
+  const rows = [...g.finishOrder.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, 4);
+  ctx.font = '6px monospace';
+  ctx.textAlign = 'right';
+  rows.forEach(([id, time], i) => {
+    const name = id === g.self.id ? g.self.name : (g.remotes.get(id)?.name ?? '???');
+    ctx.fillStyle = id === g.self.id ? '#ffd34d' : 'rgba(255,255,255,0.7)';
+    ctx.fillText(`${i + 1}. ${name} ${formatTime(time)}`, C.VIEW_W - 4, 28 + i * 8);
+  });
 }
 
 function drawHeart(ctx: CanvasRenderingContext2D, x: number, y: number, full: boolean) {

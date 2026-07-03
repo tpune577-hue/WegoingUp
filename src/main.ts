@@ -1,6 +1,6 @@
 import { Game, type RosterEntry } from './game/game';
 import { PALETTE, VIEW_H, VIEW_W } from './game/constants';
-import type { NetMsg } from './net/protocol';
+import type { GameMode, NetMsg } from './net/protocol';
 import { BroadcastTransport, SupabaseTransport, type Transport } from './net/transport';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -12,10 +12,28 @@ const resultOverlay = $('resultOverlay');
 const nameInput = $<HTMLInputElement>('nameInput');
 const roomInput = $<HTMLInputElement>('roomInput');
 const transportSelect = $<HTMLSelectElement>('transportSelect');
+const modeSelect = $<HTMLSelectElement>('modeSelect');
 const menuErr = $('menuErr');
 const roomCodeEl = $('roomCode');
 const playerList = $<HTMLUListElement>('playerList');
+const startBtn = $<HTMLButtonElement>('startBtn');
 const resultText = $('resultText');
+const resultBoard = $<HTMLOListElement>('resultBoard');
+
+const MODE_LABEL: Record<GameMode, string> = {
+  race: 'Race',
+  speedrun: 'Speed Run',
+  survival: 'Survival',
+  lava: 'Lava Map',
+};
+function currentMode(): GameMode {
+  return (modeSelect.value as GameMode) || 'race';
+}
+function updateStartBtnLabel() {
+  startBtn.textContent = `เริ่มเกม! (${MODE_LABEL[currentMode()]})`;
+}
+modeSelect.addEventListener('change', updateStartBtnLabel);
+updateStartBtnLabel();
 
 const selfId = crypto.randomUUID().slice(0, 8);
 let transport: Transport | null = null;
@@ -83,7 +101,7 @@ function handleMessage(msg: NetMsg) {
       game?.removePlayer(msg.id);
       return;
     case 'start':
-      beginGame(msg.seed, msg.players);
+      beginGame(msg.seed, msg.mode, msg.players);
       return;
     default:
       game?.handleMessage(msg);
@@ -112,7 +130,11 @@ async function joinRoom(room: string) {
   show(screenLobby);
 }
 
-function beginGame(seed: number, players: Array<{ id: string; name: string }>) {
+function beginGame(
+  seed: number,
+  mode: GameMode,
+  players: Array<{ id: string; name: string }>,
+) {
   if (!transport) return;
   if (!players.some((p) => p.id === selfId)) return; // เราไม่อยู่ในรอบนี้
   game?.destroy();
@@ -121,11 +143,37 @@ function beginGame(seed: number, players: Array<{ id: string; name: string }>) {
     name: p.name,
     color: PALETTE[i % PALETTE.length],
   }));
-  game = new Game(canvas, transport, selfId, entries, seed);
+  game = new Game(canvas, transport, selfId, entries, seed, mode);
   // dev handle สำหรับ debug/ทดสอบอัตโนมัติ
   (window as unknown as { __game?: Game }).__game = game;
   game.onEnd = (winnerName) => {
-    resultText.textContent = `🏁 ${winnerName} ชนะ!`;
+    resultBoard.classList.add('hidden');
+    resultBoard.textContent = '';
+    const verb = mode === 'survival' || mode === 'lava' ? 'รอดคนสุดท้าย' : 'ชนะ';
+    resultText.textContent = `🏁 ${winnerName} ${verb}!`;
+    resultOverlay.style.display = 'flex';
+  };
+  game.onFinishBoard = (rows) => {
+    resultText.textContent = rows[0]?.time !== null ? `🏁 ${rows[0].name} เร็วที่สุด!` : 'จบรอบ';
+    resultBoard.innerHTML = '';
+    for (const row of rows) {
+      const li = document.createElement('li');
+      if (row.time === null) li.className = 'dnf';
+      const nameSpan = document.createTextNode(row.name);
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'time';
+      if (row.time === null) {
+        timeSpan.textContent = 'DNF';
+      } else {
+        const m = Math.floor(row.time / 60);
+        const s = (row.time % 60).toFixed(1).padStart(4, '0');
+        timeSpan.textContent = `${m}:${s}`;
+      }
+      li.appendChild(nameSpan);
+      li.appendChild(timeSpan);
+      resultBoard.appendChild(li);
+    }
+    resultBoard.classList.remove('hidden');
     resultOverlay.style.display = 'flex';
   };
   show(canvas);
@@ -158,19 +206,21 @@ $('joinBtn').addEventListener('click', () => {
   void joinRoom(code);
 });
 
-$('startBtn').addEventListener('click', () => {
+startBtn.addEventListener('click', () => {
   const players = sortedRoster();
   if (players.length < 1) return;
   const seed = Math.floor(Math.random() * 0xffffffff);
-  transport?.send({ t: 'start', seed, players });
-  beginGame(seed, players); // BroadcastChannel/Supabase ไม่ echo หาตัวเอง
+  const mode = currentMode();
+  transport?.send({ t: 'start', seed, mode, players });
+  beginGame(seed, mode, players); // BroadcastChannel/Supabase ไม่ echo หาตัวเอง
 });
 
 $('againBtn').addEventListener('click', () => {
   const players = sortedRoster();
   const seed = Math.floor(Math.random() * 0xffffffff);
-  transport?.send({ t: 'start', seed, players });
-  beginGame(seed, players);
+  const mode = currentMode();
+  transport?.send({ t: 'start', seed, mode, players });
+  beginGame(seed, mode, players);
 });
 
 $('backBtn').addEventListener('click', () => {

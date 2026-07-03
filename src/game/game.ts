@@ -95,6 +95,7 @@ export class Game {
   level: Level;
   camY: number;
   lavaY: number; // lava mode: px จากบน — ทุกอย่างต่ำกว่าเส้นนี้คือลาวา
+  private roundSeed: number; // ติดไปกับทุก msg กัน msg รอบเก่าหลุดเข้ารอบใหม่ (กด "เล่นอีกรอบ" ในห้องเดิม)
   remotes = new Map<string, RemotePlayer>();
   traps = new Map<string, Trap>();
   shots: Projectile[] = [];
@@ -165,6 +166,7 @@ export class Game {
     public mode: GameMode = 'race',
   ) {
     this.ctx = canvas.getContext('2d')!;
+    this.roundSeed = seed;
     this.level = buildLevel(seed);
     this.camY = this.level.heightPx - C.VIEW_H;
     this.lavaY = this.level.heightPx;
@@ -389,7 +391,9 @@ export class Game {
             Math.abs(s.x - cx) < C.SHOT_HITBOX &&
             Math.abs(s.y - cy) < C.SHOT_HITBOX
           ) {
-            this.transport.send({ t: 'hit', from: this.selfId, to: r.id, dir: s.dir });
+            this.transport.send({
+              t: 'hit', from: this.selfId, to: r.id, seed: this.roundSeed, dir: s.dir,
+            });
             dead = true;
             break;
           }
@@ -409,7 +413,7 @@ export class Game {
       if (Math.abs(cx - b.x) < 12 && Math.abs(cy - b.y) < 12) {
         this.boxTakenUntil.set(b.id, now + C.BOX_RESPAWN);
         this.item = this.rollItem();
-        this.transport.send({ t: 'box', id: b.id, by: this.selfId });
+        this.transport.send({ t: 'box', id: b.id, by: this.selfId, seed: this.roundSeed });
         this.sendState();
         break;
       }
@@ -445,7 +449,7 @@ export class Game {
       if (overlap && now >= this.invulnUntil) {
         // เหยื่อเป็นคนตัดสิน + apply ผลเอง (victim-authoritative)
         this.traps.delete(trap.id);
-        this.transport.send({ t: 'trapfire', id: trap.id, by: this.selfId });
+        this.transport.send({ t: 'trapfire', id: trap.id, by: this.selfId, seed: this.roundSeed });
         this.takeDamage(now, { stun: true });
         return;
       }
@@ -461,12 +465,12 @@ export class Game {
       this.finished = true;
       const time = this.simTime - this.startedAt;
       this.finishOrder.set(this.selfId, time);
-      this.transport.send({ t: 'finish', id: this.selfId, time });
+      this.transport.send({ t: 'finish', id: this.selfId, seed: this.roundSeed, time });
       this.maybeEndSpeedrun();
       return;
     }
     if (this.mode === 'survival' || this.mode === 'lava') return; // เส้นชัยไม่มีผลในโหมดนี้
-    this.transport.send({ t: 'win', id: this.selfId });
+    this.transport.send({ t: 'win', id: this.selfId, seed: this.roundSeed });
     this.finish(this.selfId);
   }
 
@@ -478,7 +482,7 @@ export class Game {
     let alive = 1;
     for (const r of this.remotes.values()) if (!r.eliminated) alive++;
     if (alive <= 1) {
-      this.transport.send({ t: 'win', id: this.selfId });
+      this.transport.send({ t: 'win', id: this.selfId, seed: this.roundSeed });
       this.finish(this.selfId);
     }
   }
@@ -545,7 +549,7 @@ export class Game {
     this.eliminated = true;
     this.vx = 0;
     this.vy = 0;
-    this.transport.send({ t: 'eliminated', id: this.selfId });
+    this.transport.send({ t: 'eliminated', id: this.selfId, seed: this.roundSeed });
     this.sendState();
   }
 
@@ -603,7 +607,9 @@ export class Game {
         const x = this.px + C.PLAYER_W / 2 + this.face * 10;
         const y = this.py + C.PLAYER_H / 2;
         this.shots.push({ x, y, dir: this.face, owner: this.selfId, born: now });
-        this.transport.send({ t: 'shot', from: this.selfId, x, y, dir: this.face });
+        this.transport.send({
+          t: 'shot', from: this.selfId, seed: this.roundSeed, x, y, dir: this.face,
+        });
         break;
       }
       case 'shield':
@@ -618,7 +624,7 @@ export class Game {
           if (t.owner === this.selfId) this.traps.delete(t.id);
         }
         this.traps.set(id, { id, owner: this.selfId, x, y, placed: now });
-        this.transport.send({ t: 'trap', id, owner: this.selfId, x, y });
+        this.transport.send({ t: 'trap', id, owner: this.selfId, seed: this.roundSeed, x, y });
         break;
       }
       case 'swap': {
@@ -633,6 +639,7 @@ export class Game {
           t: 'swapreq',
           from: this.selfId,
           to: target.id,
+          seed: this.roundSeed,
           x: this.px,
           y: this.py,
         });
@@ -648,6 +655,7 @@ export class Game {
     this.transport.send({
       t: 'state',
       id: this.selfId,
+      seed: this.roundSeed,
       x: this.px,
       y: this.py,
       vx: this.vx,
@@ -661,6 +669,8 @@ export class Game {
   }
 
   handleMessage(msg: NetMsg) {
+    // ทิ้ง msg ที่ยังค้างมาจากรอบก่อนหน้า (ไม่ใช่ hello/bye/start ซึ่งไม่ผ่านมาถึงตรงนี้อยู่แล้ว)
+    if ('seed' in msg && msg.seed !== this.roundSeed) return;
     const now = this.simTime;
     switch (msg.t) {
       case 'state': {
@@ -687,7 +697,9 @@ export class Game {
         // เหยื่อเช็คเกราะบนเครื่องตัวเอง — ไม่มี timing dispute (CONTEXT.md — เกราะ)
         if (this.shield) {
           this.shield = false;
-          this.transport.send({ t: 'swapblock', from: this.selfId, to: msg.from });
+          this.transport.send({
+            t: 'swapblock', from: this.selfId, to: msg.from, seed: this.roundSeed,
+          });
           this.sendState();
           return;
         }
@@ -698,7 +710,9 @@ export class Game {
         this.vx = 0;
         this.vy = 0;
         this.invulnUntil = Math.max(this.invulnUntil, now + 0.5);
-        this.transport.send({ t: 'swapack', from: this.selfId, to: msg.from, x: oldX, y: oldY });
+        this.transport.send({
+          t: 'swapack', from: this.selfId, to: msg.from, seed: this.roundSeed, x: oldX, y: oldY,
+        });
         this.sendState();
         break;
       }

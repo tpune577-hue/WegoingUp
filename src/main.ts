@@ -7,6 +7,12 @@ import { fetchWorldTop, submitWorldTime } from './net/leaderboard';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const canvas = $<HTMLCanvasElement>('game');
+const touchControls = $('touchControls');
+const btnLeft = $<HTMLButtonElement>('btnLeft');
+const btnRight = $<HTMLButtonElement>('btnRight');
+const btnJump = $<HTMLButtonElement>('btnJump');
+const btnItem = $<HTMLButtonElement>('btnItem');
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 const screenMenu = $('screen-menu');
 const screenLobby = $('screen-lobby');
 const resultOverlay = $('resultOverlay');
@@ -57,9 +63,44 @@ function show(el: HTMLElement | null) {
   screenLobby.classList.add('hidden');
   canvas.style.display = 'none';
   resultOverlay.style.display = 'none';
-  if (el === canvas) canvas.style.display = 'block';
-  else el?.classList.remove('hidden');
+  touchControls.classList.remove('show');
+  if (el === canvas) {
+    canvas.style.display = 'block';
+    if (isTouchDevice) touchControls.classList.add('show');
+  } else el?.classList.remove('hidden');
 }
+
+// ผูกปุ่มสัมผัสเข้ากับ Game.touch* — เขียนลง this.keys ชุดเดียวกับคีย์บอร์ด (ดู game.ts)
+// ใช้ pointer events (ไม่ใช่ touch/click) เพื่อรองรับทั้งนิ้วและเมาส์ตอน debug บนเดสก์ท็อป
+function bindHold(btn: HTMLButtonElement, onDown: () => void, onUp: () => void) {
+  const down = (e: PointerEvent) => {
+    e.preventDefault();
+    btn.classList.add('active');
+    // setPointerCapture ป้องกันไม่ให้ pointerup หลุดถ้านิ้วลากออกนอกปุ่ม — แต่บาง browser/เคส
+    // ปฏิเสธ pointerId ที่ไม่ active แล้ว throw ได้ ไม่ควรให้กระทบการสั่งเดิน/กระโดดจริง
+    try {
+      btn.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore — ปุ่มยังทำงานได้ปกติ แค่ไม่ได้ capture pointer
+    }
+    onDown();
+  };
+  const up = (e: PointerEvent) => {
+    e.preventDefault();
+    btn.classList.remove('active');
+    onUp();
+  };
+  btn.addEventListener('pointerdown', down);
+  btn.addEventListener('pointerup', up);
+  btn.addEventListener('pointercancel', up);
+}
+bindHold(btnLeft, () => game?.touchLeft(true), () => game?.touchLeft(false));
+bindHold(btnRight, () => game?.touchRight(true), () => game?.touchRight(false));
+bindHold(btnJump, () => game?.touchJump(true), () => game?.touchJump(false));
+btnItem.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  game?.touchItem();
+});
 
 function fitCanvas() {
   const scale = Math.max(

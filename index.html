@@ -71,11 +71,35 @@
     #resultBoard li.dnf { color: #6a6590; }
     #worldBoard li.empty { list-style: none; color: #6a6590; font-size: 12px; max-width: 240px; line-height: 1.5; }
     #resultBoard .time, #worldBoard .time { float: right; color: #7de07d; }
+
+    /* ปุ่มควบคุมบนมือถือ — ทับบน canvas เฉพาะระหว่างเล่น, โชว์เฉพาะอุปกรณ์สัมผัส (ดู main.ts) */
+    #touchControls { position: absolute; inset: 0; pointer-events: none; z-index: 5; display: none; }
+    #touchControls.show { display: block; }
+    .tc-btn {
+      position: absolute; pointer-events: auto;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; border: 2px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.14); color: #fff; font-size: 26px;
+      -webkit-tap-highlight-color: transparent; user-select: none; touch-action: none;
+    }
+    .tc-btn:active, .tc-btn.active { background: rgba(255,255,255,0.32); }
+    #btnLeft, #btnRight { width: 60px; height: 60px; bottom: 20px; }
+    #btnLeft { left: 16px; }
+    #btnRight { left: 84px; }
+    #btnItem { width: 50px; height: 50px; font-size: 20px; right: 20px; bottom: 92px; }
+    #btnJump { width: 68px; height: 68px; right: 16px; bottom: 20px; }
   </style>
 </head>
 <body>
   <div id="app">
     <canvas id="game" width="320" height="240"></canvas>
+
+    <div id="touchControls">
+      <button id="btnLeft" class="tc-btn" aria-label="เดินซ้าย">◀</button>
+      <button id="btnRight" class="tc-btn" aria-label="เดินขวา">▶</button>
+      <button id="btnItem" class="tc-btn" aria-label="ใช้ไอเทม">✦</button>
+      <button id="btnJump" class="tc-btn" aria-label="กระโดด">⤒</button>
+    </div>
 
     <div id="screen-menu" class="screen">
       <h1>WE GO วิ่ง อัพ</h1>

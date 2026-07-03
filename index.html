@@ -88,6 +88,20 @@
     #btnRight { left: 84px; }
     #btnItem { width: 50px; height: 50px; font-size: 20px; right: 20px; bottom: 92px; }
     #btnJump { width: 68px; height: 68px; right: 16px; bottom: 20px; }
+
+    /* เตือนให้หมุนจอเมื่อเล่นเกม (แนวนอน) อยู่ในโหมด portrait — ดู main.ts */
+    #rotatePrompt {
+      position: absolute; inset: 0; z-index: 20; display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      background: rgba(20, 18, 31, 0.96); text-align: center; padding: 20px;
+    }
+    #rotatePrompt.show { display: flex; }
+    .rotate-icon { font-size: 56px; animation: rotate-hint 1.6s ease-in-out infinite; }
+    .rotate-text { font-size: 16px; color: #eee; max-width: 260px; line-height: 1.6; }
+    @keyframes rotate-hint {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(-90deg); }
+    }
   </style>
 </head>
 <body>
@@ -99,6 +113,11 @@
       <button id="btnRight" class="tc-btn" aria-label="เดินขวา">▶</button>
       <button id="btnItem" class="tc-btn" aria-label="ใช้ไอเทม">✦</button>
       <button id="btnJump" class="tc-btn" aria-label="กระโดด">⤒</button>
+    </div>
+
+    <div id="rotatePrompt">
+      <div class="rotate-icon">📱</div>
+      <div class="rotate-text">หมุนจอเป็นแนวนอนเพื่อเล่น — เกมนี้ออกแบบมาสำหรับจอกว้าง</div>
     </div>
 
     <div id="screen-menu" class="screen">

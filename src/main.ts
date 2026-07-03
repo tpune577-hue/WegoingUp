@@ -8,6 +8,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 const canvas = $<HTMLCanvasElement>('game');
 const touchControls = $('touchControls');
+const rotatePrompt = $('rotatePrompt');
 const btnLeft = $<HTMLButtonElement>('btnLeft');
 const btnRight = $<HTMLButtonElement>('btnRight');
 const btnJump = $<HTMLButtonElement>('btnJump');
@@ -58,16 +59,28 @@ const roster = new Map<string, { name: string }>();
 
 nameInput.value = localStorage.getItem('wgw-name') ?? '';
 
+let showingCanvas = false;
+
+// จอเกมเป็นแนวนอนตายตัว (VIEW_W > VIEW_H) — ถ้าถือมือถือ portrait ระหว่างเล่น เตือนให้หมุนจอ
+// แทนการบังคับ screen.orientation.lock() เพราะ iOS Safari ไม่รองรับ lock เลย ทำ prompt เข้ากันได้ทุก browser
+const portraitMq = window.matchMedia('(orientation: portrait)');
+function updateRotatePrompt() {
+  rotatePrompt.classList.toggle('show', showingCanvas && portraitMq.matches);
+}
+portraitMq.addEventListener('change', updateRotatePrompt);
+
 function show(el: HTMLElement | null) {
   screenMenu.classList.add('hidden');
   screenLobby.classList.add('hidden');
   canvas.style.display = 'none';
   resultOverlay.style.display = 'none';
   touchControls.classList.remove('show');
+  showingCanvas = el === canvas;
   if (el === canvas) {
     canvas.style.display = 'block';
     if (isTouchDevice) touchControls.classList.add('show');
   } else el?.classList.remove('hidden');
+  updateRotatePrompt();
 }
 
 // ผูกปุ่มสัมผัสเข้ากับ Game.touch* — เขียนลง this.keys ชุดเดียวกับคีย์บอร์ด (ดู game.ts)

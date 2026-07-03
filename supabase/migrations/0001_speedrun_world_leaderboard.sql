@@ -18,11 +18,14 @@ alter table public.wgw_speedrun_times enable row level security;
 -- เกมนี้ไม่มีระบบ auth — ทุกคนที่มี anon key (ก็คือทุกคนที่เปิดหน้าเว็บ) ส่งเวลาของตัวเองได้
 -- (client-authoritative เหมือนโปรโตคอลเกมส่วนอื่นๆ ตาม ADR-0001 — โกงได้ในทางเทคนิค ยอมรับได้สำหรับ
 -- leaderboard เล่นกับเพื่อน)
+-- Postgres ไม่มี `create policy if not exists` — drop ก่อนกันรันไฟล์นี้ซ้ำแล้ว error
+drop policy if exists "anyone can submit a speedrun time" on public.wgw_speedrun_times;
 create policy "anyone can submit a speedrun time"
   on public.wgw_speedrun_times for insert
   to anon
   with check (true);
 
+drop policy if exists "anyone can read the leaderboard" on public.wgw_speedrun_times;
 create policy "anyone can read the leaderboard"
   on public.wgw_speedrun_times for select
   to anon
